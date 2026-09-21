@@ -27,3 +27,4 @@ demo/*.png
 # OS
 .DS_Store
 .wheels/
+scripts_pull.sh
