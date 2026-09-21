@@ -352,9 +352,44 @@ def _stem_present(stem: str, text: str) -> bool:
     return False
 
 
+#: Насколько близко должны стоять корни одного варианта, в словах.
+#: Реальные фразы схем укладываются в пять: «назовите код из смс» — четыре,
+#: «переведите деньги на безопасный счёт» — пять.
+#: Замеряно на настоящей расшифровке: при окне в восемь слов «служба
+#: БЕЗОПАСНости банка… по вашему СЧЁТу» (шесть слов между корнями)
+#: срабатывало как «переведите на безопасный счёт».
+PROXIMITY_WINDOW = 5
+
+
+def _variant_in_window(words: list[str], stems: tuple[str, ...]) -> bool:
+    """Проверяет, что все корни варианта стоят рядом друг с другом.
+
+    Это принципиально, а не косметика. Если искать корни по всему тексту,
+    то в длинном разговоре они пересекутся сами собой: «служба БЕЗОПАСНости
+    банка… по вашему СЧЁТу» срабатывало как «переведите на безопасный счёт»,
+    хотя ни о каком переводе речи не было. Чем дольше идёт звонок,
+    тем больше таких случайных совпадений.
+    """
+    normalized = [_normalize(stem).strip() for stem in stems]
+
+    if len(normalized) == 1:
+        return any(_stem_present(normalized[0], word) for word in words)
+
+    for start in range(len(words)):
+        window = words[start : start + PROXIMITY_WINDOW]
+        if all(
+            any(_stem_present(stem, word) for word in window)
+            for stem in normalized
+        ):
+            return True
+    return False
+
+
 def _matches(text: str, variants: tuple[tuple[str, ...], ...]) -> bool:
+    """Ищет хотя бы один вариант, чьи корни стоят рядом."""
+    words = text.split()
     for variant in variants:
-        if all(_stem_present(_normalize(stem).strip(), text) for stem in variant):
+        if _variant_in_window(words, variant):
             return True
     return False
 
