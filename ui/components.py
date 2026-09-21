@@ -222,18 +222,35 @@ def comparison_card(
     )
 
 
-def triage_card(urgency: str, doctor: str, why: str, what: str, earlier: str) -> None:
-    """Карточка маршрутизации: срочность, специалист, что делать."""
+def triage_card(
+    urgency: str,
+    doctor: str,
+    causes: str,
+    why: str,
+    what: str,
+    earlier: str,
+) -> None:
+    """Карточка заключения приёма: вердикт, причины, план действий.
+
+    Исход «САМОСТОЯТЕЛЬНО» здесь полноценный, а не отговорка: большинство
+    обращений к терапевту заканчиваются именно им, и человеку нужен
+    конкретный план на дом, а не отправка в очередь на всякий случай.
+    """
     palette = {
-        "СРОЧНО": ("🔴", "red", "Обратитесь сегодня"),
+        "СРОЧНО": ("🔴", "red", "Нужна помощь сегодня"),
         "ПЛАНОВО": ("🟡", "amber", "К врачу в ближайшие дни"),
-        "НАБЛЮДЕНИЕ": ("🟢", "green", "Можно понаблюдать дома"),
+        "САМОСТОЯТЕЛЬНО": ("🟢", "green", "Врач не нужен — справитесь сами"),
     }
     emoji, glow, headline = palette.get(urgency.upper(), ("🟡", "amber", urgency))
 
     doctor_html = (
         f'<div style="margin-top:0.5rem"><b>Специалист:</b> {doctor}</div>'
-        if doctor and doctor != "—"
+        if doctor and doctor.lower() not in ("—", "не нужен", "")
+        else ""
+    )
+    causes_html = (
+        f'<div style="margin-top:0.5rem"><b>Вероятные причины:</b> {causes}</div>'
+        if causes
         else ""
     )
 
@@ -245,8 +262,9 @@ def triage_card(urgency: str, doctor: str, why: str, what: str, earlier: str) ->
                         margin-bottom:0.6rem" class="sx-glow-{glow}">{headline}</div>
             <div style="font-size:0.9rem; line-height:1.55">
                 {why}
+                {causes_html}
                 {doctor_html}
-                <div style="margin-top:0.5rem"><b>Что делать:</b> {what}</div>
+                <div style="margin-top:0.5rem"><b>План действий:</b> {what}</div>
                 <div style="margin-top:0.5rem; color:{config.COLOR_AMBER}">
                     <b>Обратиться раньше, если:</b> {earlier}
                 </div>

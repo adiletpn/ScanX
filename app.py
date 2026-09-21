@@ -117,10 +117,10 @@ def _render_scan_result() -> None:
             f"длительность записи {result.duration_sec:.0f} с"
         )
 
-    if st.button("Спросить ИИ о результатах", key="ask_ai"):
+    if st.button("Обсудить с врачом", key="ask_ai"):
         st.session_state.jump_to_chat = True
         st.session_state.chat_messages.append(
-            {"role": "user", "content": "Что значат мои результаты?"}
+            {"role": "user", "content": "Разбери мои результаты"}
         )
         st.rerun()
 
@@ -214,9 +214,9 @@ def render_chat_tab() -> None:
         return
 
     if st.session_state.scan_result is not None:
-        ui.note("Результаты вашего скана переданы ассистенту.")
+        ui.note("Данные скана переданы врачу — он их учтёт.")
     else:
-        ui.note("Задайте вопрос о самочувствии. Скан сделаете позже.")
+        ui.note("Расскажите, что беспокоит. Скан можно сделать позже.")
 
     # Быстрые вопросы — экономят набор текста на телефоне.
     if not st.session_state.chat_messages:
@@ -238,15 +238,13 @@ def render_chat_tab() -> None:
     ):
         _stream_answer()
 
-    if question := st.chat_input("Что вас беспокоит?"):
+    if question := st.chat_input("Расскажите, что беспокоит"):
         st.session_state.chat_messages.append({"role": "user", "content": question})
         st.rerun()
 
     if st.session_state.chat_messages and st.button("Очистить диалог", key="clear_chat"):
         st.session_state.chat_messages = []
         st.rerun()
-
-    ui.disclaimer()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -263,6 +261,7 @@ def _parse_triage(raw: str) -> dict[str, str]:
     fields = {
         "СРОЧНОСТЬ": "",
         "ВРАЧ": "",
+        "ПРИЧИНЫ": "",
         "ПОЧЕМУ": "",
         "ЧТО ДЕЛАТЬ": "",
         "ОБРАТИТЬСЯ РАНЬШЕ, ЕСЛИ": "",
@@ -283,8 +282,8 @@ def render_triage_tab() -> None:
         return
 
     ui.note(
-        "Опишите, что беспокоит — подскажем, нужен ли врач, "
-        "какой специальности и насколько срочно."
+        "Опишите жалобы подробно: что беспокоит, как давно, "
+        "что усиливает и что облегчает. Чем больше деталей — тем точнее разбор."
     )
 
     complaint = st.text_area(
@@ -295,7 +294,7 @@ def render_triage_tab() -> None:
         label_visibility="collapsed",
     )
 
-    if st.button("Определить маршрут", type="primary", key="triage_run"):
+    if st.button("Получить заключение", type="primary", key="triage_run"):
         if not complaint.strip():
             ui.note("Опишите жалобы хотя бы в двух словах.", kind="warn")
         else:
@@ -329,13 +328,12 @@ def render_triage_tab() -> None:
         ui.triage_card(
             urgency=triage["СРОЧНОСТЬ"] or "ПЛАНОВО",
             doctor=triage["ВРАЧ"] or "—",
+            causes=triage["ПРИЧИНЫ"],
             why=triage["ПОЧЕМУ"] or "Требуется очная оценка врача.",
             what=triage["ЧТО ДЕЛАТЬ"] or "Запишитесь на приём.",
             earlier=triage["ОБРАТИТЬСЯ РАНЬШЕ, ЕСЛИ"]
             or "состояние ухудшится или появятся новые симптомы",
         )
-
-    ui.disclaimer()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -352,7 +350,7 @@ def main() -> None:
     init_session_state()
     render_header()
 
-    tab_scan, tab_chat, tab_triage = st.tabs(["Скан", "Ассистент", "Куда идти"])
+    tab_scan, tab_chat, tab_triage = st.tabs(["Скан", "Приём", "Заключение"])
 
     with tab_scan:
         render_scan_tab()
@@ -360,6 +358,11 @@ def main() -> None:
         render_chat_tab()
     with tab_triage:
         render_triage_tab()
+
+    # Дисклеймер один на всё приложение: повторённый на каждой вкладке,
+    # он превращается в шум, который перестают читать.
+    st.divider()
+    ui.disclaimer()
 
 
 if __name__ == "__main__":
