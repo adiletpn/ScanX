@@ -23,6 +23,7 @@ from typing import Iterator
 import config
 from ai import ollama_client, prompts
 from ai.specialties import SPECIALTIES, Specialty, get as get_specialty
+from core.triage_engine import TriageDecision
 
 log = logging.getLogger(__name__)
 
@@ -106,24 +107,35 @@ def _parse_specialties(raw: str) -> list[Specialty]:
     return found[:COUNCIL_SIZE]
 
 
-def choose_specialists(complaint: str, scan_context: str = "") -> list[Specialty]:
-    """Определяет, каким специалистам показать жалобу.
+def choose_specialists(decision: TriageDecision) -> list[Specialty]:
+    """Собирает состав консилиума по решению собственного движка.
 
-    Raises:
-        ollama_client.OllamaError: модель недоступна.
+    Языковая модель здесь не участвует намеренно. Маршрутизация —
+    это выбор из фиксированного списка по понятным правилам, и отдавать
+    его недетерминированной модели незачем: на одну и ту же жалобу она
+    может собрать разный консилиум, а объяснить выбор не сможет.
+
+    Движок же возвращает веса, по которым видно, почему позван именно
+    этот врач, и результат воспроизводится в точности.
     """
-    user = f"{complaint}\n\n{scan_context}".strip()
-    raw = ollama_client.chat_once(
-        [
-            {"role": "system", "content": SYSTEM_ROUTER},
-            {"role": "user", "content": user},
-        ],
-        # Маршрутизация — это выбор из списка, а не творчество.
-        temperature=0.1,
-    )
-    chosen = _parse_specialties(raw)
+    chosen: list[Specialty] = []
+    for key, _weight in decision.specialties:
+        specialty = get_specialty(key)
+        if specialty not in chosen:
+            chosen.append(specialty)
+        if len(chosen) >= COUNCIL_SIZE:
+            break
+
+    # Добираем состав, если движок распознал мало.
+    for key in ("therapist", "neurologist", "cardiologist"):
+        if len(chosen) >= COUNCIL_SIZE:
+            break
+        fallback = get_specialty(key)
+        if fallback not in chosen:
+            chosen.append(fallback)
+
     log.info("Консилиум: %s", ", ".join(s.name for s in chosen))
-    return chosen
+    return chosen[:COUNCIL_SIZE]
 
 
 def opinion_stream(

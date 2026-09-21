@@ -17,6 +17,7 @@ import streamlit as st
 import config
 from ai import council, ollama_client, prompts, specialties
 from core import scan as scan_mod
+from core import triage_engine
 from core import video_io
 from ui import components as ui
 from ui.styles import inject_styles, render_header
@@ -41,6 +42,7 @@ def init_session_state() -> None:
         "triage_result": None,     # карточка маршрутизации
         "council_opinions": [],    # мнения специалистов консилиума
         "council_summary": None,   # сводное заключение консилиума
+        "triage_decision": None,   # решение собственного движка
         "jump_to_chat": False,     # переход из скана в чат с контекстом
         "specialty": specialties.DEFAULT_KEY,  # у какого врача идёт приём
     }
@@ -301,12 +303,33 @@ def _run_council(complaint: str, scan_context: str) -> None:
     st.session_state.council_opinions = []
     st.session_state.council_summary = None
 
-    try:
-        with st.spinner("Собираю консилиум…"):
-            chosen = council.choose_specialists(complaint, scan_context)
-    except ollama_client.OllamaError as exc:
-        ui.note(str(exc), kind="warn")
+    # Решение принимает наш движок — мгновенно, детерминированно
+    # и с объяснением. Модель подключается уже после, только чтобы
+    # изложить это человеческим языком.
+    result = st.session_state.scan_result
+    decision = triage_engine.evaluate(
+        complaint,
+        heart_rate_bpm=(
+            result.heart_rate.bpm
+            if result is not None and result.quality.level.is_trustworthy
+            else None
+        ),
+        fatigue_index=(
+            result.fatigue.index
+            if result is not None and result.fatigue.reliable
+            else None
+        ),
+    )
+    st.session_state.triage_decision = decision
+    ui.decision_trace(decision)
+
+    # Неотложное состояние — единственный случай, когда мы не ждём модель:
+    # номер скорой должен появиться на экране немедленно.
+    if decision.is_emergency:
+        ui.emergency_card(decision)
         return
+
+    chosen = council.choose_specialists(decision)
 
     opinions: list[council.Opinion] = []
     for specialty in chosen:

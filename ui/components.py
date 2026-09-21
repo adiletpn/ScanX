@@ -12,6 +12,7 @@ import streamlit as st
 import config
 from core.fatigue import FatigueResult
 from core.quality import QualityLevel, QualityReport
+from core.triage_engine import TriageDecision
 from core.rppg import HeartRateResult
 
 
@@ -322,6 +323,56 @@ def council_card(
         """,
         unsafe_allow_html=True,
     )
+
+
+def emergency_card(decision: TriageDecision) -> None:
+    """Экран неотложного состояния.
+
+    Показывается сразу, без обращения к модели: когда сработал красный флаг,
+    номер скорой должен появиться немедленно, а не через минуту генерации.
+    """
+    flags = "<br>".join(f"• {f.description}" for f in decision.red_flags)
+    advice = "<br>".join(f"• {f.advice}" for f in decision.red_flags)
+
+    st.markdown(
+        f"""
+        <div class="sx-card" style="border-color:{config.COLOR_RED};
+                    background:rgba(255,59,92,0.10)">
+            <div style="text-align:center; font-size:2.6rem">🚨</div>
+            <div style="text-align:center; font-size:1.6rem; font-weight:800"
+                 class="sx-glow-red">Звоните {config.EMERGENCY_NUMBER} или 112</div>
+            <div style="text-align:center; font-size:0.95rem; margin-top:0.5rem">
+                Немедленно. Это не может подождать.
+            </div>
+            <div style="font-size:0.9rem; line-height:1.6; margin-top:0.9rem">
+                <b>Что распознано:</b><br>{flags}
+                <div style="margin-top:0.6rem"><b>Пока ждёте помощь:</b><br>{advice}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def decision_trace(decision: TriageDecision) -> None:
+    """След решения движка — почему получился именно такой вывод.
+
+    Раскрывающийся блок, а не всплывающая подсказка: обычному пользователю
+    это не нужно каждый раз, но возможность посмотреть должна быть всегда.
+    Решение, которое нельзя проверить, доверия не заслуживает.
+    """
+    if not decision.reasons:
+        return
+
+    with st.expander(
+        f"{decision.urgency.emoji} {decision.urgency.label} — почему так решено"
+    ):
+        for reason in decision.reasons:
+            st.markdown(f"- {reason}")
+        if decision.specialties:
+            top = ", ".join(f"{k} — {v:.1f}" for k, v in decision.specialties[:5])
+            st.caption(f"Веса специальностей: {top}")
+        st.caption(f"Балл срочности: {decision.score:.1f}")
 
 
 def disclaimer() -> None:
