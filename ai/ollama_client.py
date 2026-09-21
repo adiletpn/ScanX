@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from dataclasses import dataclass
 from typing import Iterator
@@ -151,7 +152,7 @@ def chat_stream(
                 if not line:
                     continue
                 try:
-                    chunk = __import__("json").loads(line)
+                    chunk = json.loads(line)
                 except ValueError:
                     # Оборванная строка в потоке — пропускаем, но не падаем:
                     # потерять один фрагмент лучше, чем весь ответ.

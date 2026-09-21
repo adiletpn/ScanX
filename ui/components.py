@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import numpy as np
+import pandas as pd
 import streamlit as st
 
 import config
@@ -164,8 +164,6 @@ def spectrum_chart(hr: HeartRateResult) -> None:
 
     # Индексируем по частоте в уд/мин: так подпись оси сразу читается
     # как пульс, без мысленного перевода из герц.
-    import pandas as pd
-
     frame = pd.DataFrame({"уд/мин": bpm_axis, "мощность": values}).set_index("уд/мин")
     st.line_chart(frame, height=140, color=config.COLOR_MAGENTA)
 
