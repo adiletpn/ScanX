@@ -1,0 +1,23 @@
+# ScanX — зависимости. Python 3.12 (на 3.13+ mediapipe теряет mp.solutions.face_mesh).
+# Версии закреплены: на хакатоне нет времени разбираться с внезапным мажорным апдейтом.
+
+streamlit==1.40.2
+
+# Компьютерное зрение.
+# mediapipe 0.10.21 — последняя версия с legacy-API mp.solutions.face_mesh.
+# Начиная с 0.10.30 остался только Tasks API, наш код там не заработает.
+mediapipe==0.10.21
+opencv-python-headless==4.10.0.84
+
+# Численные методы. numpy<2 — требование mediapipe 0.10.x.
+numpy==1.26.4
+scipy==1.14.1
+
+# Графики пульсовой волны и спектра
+matplotlib==3.9.2
+
+# HTTP-клиент к локальному Ollama
+requests==2.32.3
+
+# Тесты
+pytest==8.3.4
