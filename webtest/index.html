@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ScanX — проверка Vosk</title>
+<style>
+  body { margin:0; padding:16px; background:#05070d; color:#e8f4f8;
+         font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif; font-size:16px; line-height:1.5; }
+  h1 { font-size:1.25rem; margin:0 0 4px; }
+  .sub { color:#7a8b99; font-size:.85rem; margin-bottom:14px; }
+  button { width:100%; min-height:52px; margin:8px 0; border-radius:13px;
+           border:1px solid rgba(0,240,255,.25); background:rgba(0,240,255,.1);
+           color:#e8f4f8; font-size:1rem; font-weight:700; font-family:inherit; }
+  button:disabled { opacity:.35; }
+  .card { background:rgba(0,240,255,.05); border:1px solid rgba(0,240,255,.2);
+          border-radius:14px; padding:12px 14px; margin:10px 0; }
+  .label { font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; color:#7a8b99; font-weight:700; }
+  #log { font-size:.78rem; white-space:pre-wrap; word-break:break-word; max-height:240px; overflow-y:auto; margin-top:6px; }
+  #text { font-size:1.05rem; min-height:56px; margin-top:6px; }
+  .ok { color:#39ff14; } .err { color:#ff3b5c; } .dim { color:#7a8b99; }
+</style>
+</head>
+<body>
+<h1>Проверка Vosk в браузере</h1>
+<div class="sub">Офлайн-распознавание речи прямо на телефоне</div>
+
+<div class="card">
+  <div class="label">Что умеет этот браузер</div>
+  <div id="caps" style="font-size:.88rem; margin-top:6px">скрипт не запустился</div>
+</div>
+
+<button id="loadKz">1. Казахская модель (57 МБ)</button>
+<button id="loadRu">1. Русская модель (44 МБ)</button>
+<button id="mic" disabled>2. Включить микрофон</button>
+<button id="stop" disabled>Стоп</button>
+
+<div class="card">
+  <div class="label">Распознано</div>
+  <div id="text">—</div>
+</div>
+
+<div class="card">
+  <div class="label">Журнал</div>
+  <div id="log"></div>
+</div>
+
+<!-- Локальная копия: CDN сегодня рвётся, и тогда страница молчит без объяснений -->
+<script src="vosk.js" onerror="document.getElementById('caps').innerHTML='<span class=err>vosk.js не загрузился</span>'"></script>
+<script>
+"use strict";
+var logEl = document.getElementById('log');
+var textEl = document.getElementById('text');
+var model = null, recognizer = null, audioCtx = null, stream = null, node = null;
+
+function log(msg, cls) {
+  var t = new Date().toLocaleTimeString('ru-RU');
+  logEl.innerHTML = '<span class="' + (cls || 'dim') + '">[' + t + '] ' + msg + '</span>\n' + logEl.innerHTML;
+}
+
+// Любая необработанная ошибка должна быть видна на экране, а не в консоли:
+// на телефоне консоль не откроешь.
+window.onerror = function (m, src, line) { log('ОШИБКА: ' + m + ' (строка ' + line + ')', 'err'); };
+window.onunhandledrejection = function (e) { log('ОШИБКА промиса: ' + e.reason, 'err'); };
+
+try {
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var md = navigator.mediaDevices;
+  var rows = [
+    ['WebAssembly', typeof WebAssembly !== 'undefined'],
+    ['Защищённый контекст (нужен для микрофона)', window.isSecureContext === true],
+    ['navigator.mediaDevices', !!md],
+    ['getUserMedia', !!(md && md.getUserMedia)],
+    ['AudioContext', !!AC],
+    ['speechSynthesis', 'speechSynthesis' in window],
+    ['Vosk загружен', typeof Vosk !== 'undefined']
+  ];
+  document.getElementById('caps').innerHTML =
+    rows.map(function (r) { return (r[1] ? '✅ ' : '❌ ') + r[0]; }).join('<br>');
+  log('Страница готова. Протокол: ' + location.protocol, 'ok');
+  if (!window.isSecureContext) {
+    log('Контекст не защищён — микрофон браузер не даст. Нужен https.', 'err');
+  }
+} catch (e) {
+  document.getElementById('caps').innerHTML = '<span class="err">Сбой проверки: ' + e.message + '</span>';
+}
+
+function loadModel(url, name) {
+  if (typeof Vosk === 'undefined') { log('Vosk не загружен — модель грузить нечем', 'err'); return; }
+  log('Загружаю ' + name + '…');
+  var t0 = Date.now();
+  Vosk.createModel(url).then(function (m) {
+    model = m;
+    log('Модель ' + name + ' загружена за ' + ((Date.now() - t0) / 1000).toFixed(1) + ' с', 'ok');
+    document.getElementById('mic').disabled = false;
+  }).catch(function (e) {
+    log('Не удалось загрузить модель: ' + (e && e.message ? e.message : e), 'err');
+  });
+}
+
+document.getElementById('loadKz').onclick = function () {
+  loadModel('vosk-model-small-kz-0.42.tar.gz', 'казахская');
+};
+document.getElementById('loadRu').onclick = function () {
+  loadModel('vosk-model-small-ru-0.22.tar.gz', 'русская');
+};
+
+document.getElementById('mic').onclick = function () {
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) {
+    log('Микрофон недоступен: нет getUserMedia. Откройте страницу по https.', 'err');
+    return;
+  }
+  md.getUserMedia({ audio: { channelCount: 1, echoCancellation: true }, video: false })
+    .then(function (s) {
+      stream = s;
+      log('Микрофон разрешён', 'ok');
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      // Safari запускает контекст приостановленным, пока его не разбудят.
+      if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+
+      // Распознаватель создаётся ПОСЛЕ контекста и с его настоящей частотой.
+      // Браузер отдаёт 48000 Гц, и если сказать Vosk'у 16000, он примет
+      // поток втрое быстрее нужного и не распознает ничего — молча,
+      // без единой ошибки. Самый неприятный вид поломки.
+      recognizer = new model.KaldiRecognizer(audioCtx.sampleRate);
+      recognizer.on('result', function (m) {
+        var t = m.result.text;
+        if (t) { textEl.textContent = (textEl.textContent === '—' ? '' : textEl.textContent + ' ') + t; }
+      });
+      recognizer.on('partialresult', function (m) {
+        if (m.result.partial) log('… ' + m.result.partial);
+      });
+      log('Распознаватель настроен на ' + audioCtx.sampleRate + ' Гц', 'ok');
+
+      var src = audioCtx.createMediaStreamSource(stream);
+      node = audioCtx.createScriptProcessor(4096, 1, 1);
+      node.onaudioprocess = function (ev) {
+        try { recognizer.acceptWaveform(ev.inputBuffer); } catch (e) {}
+      };
+      src.connect(node);
+      node.connect(audioCtx.destination);
+      log('Слушаю. Частота ' + audioCtx.sampleRate + ' Гц. Говорите.', 'ok');
+      document.getElementById('mic').disabled = true;
+      document.getElementById('stop').disabled = false;
+    })
+    .catch(function (e) {
+      log('Микрофон отклонён: ' + (e && e.name ? e.name + ' — ' + e.message : e), 'err');
+    });
+};
+
+document.getElementById('stop').onclick = function () {
+  if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+  if (node) node.disconnect();
+  if (audioCtx) audioCtx.close();
+  log('Остановлено');
+  document.getElementById('mic').disabled = false;
+  document.getElementById('stop').disabled = true;
+};
+</script>
+</body>
+</html>
