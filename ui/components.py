@@ -12,6 +12,7 @@ import streamlit as st
 import config
 from core.fatigue import FatigueResult
 from core.quality import QualityLevel, QualityReport
+from core.history import Baseline, Deviation
 from core.triage_engine import TriageDecision
 from core.rppg import HeartRateResult
 
@@ -397,6 +398,69 @@ def doctor_sheet_card(text: str) -> None:
         unsafe_allow_html=True,
     )
     st.markdown(text)
+
+
+def baseline_card(deviation: Deviation, baseline: Baseline) -> None:
+    """Сравнение замера с личной нормой.
+
+    Справочные 60–100 описывают население, а не человека: у одного пульс
+    покоя 54, у другого 88, и оба здоровы. Поэтому здесь показывается
+    собственный коридор, набранный по прошлым замерам.
+    """
+    if not deviation.has_baseline:
+        note(f"📊 {deviation.message}")
+        return
+
+    color = config.COLOR_AMBER if deviation.is_deviation else config.COLOR_GREEN
+    arrow = "▲" if deviation.bpm_delta > 0 else ("▼" if deviation.bpm_delta < 0 else "=")
+
+    notify = ""
+    if deviation.should_notify:
+        notify = (
+            f'<div style="margin-top:0.6rem; font-size:0.85rem; '
+            f'color:{config.COLOR_AMBER}">📩 Об этом стоит сообщить близким</div>'
+        )
+
+    st.markdown(
+        f"""
+        <div class="sx-card">
+            <div class="sx-metric-label">Ваша личная норма</div>
+            <div style="display:flex; justify-content:space-around;
+                        align-items:center; margin-top:0.7rem">
+                <div style="text-align:center">
+                    <div class="sx-metric-note">обычно</div>
+                    <div style="font-size:1.7rem; font-weight:800"
+                         class="sx-glow-cyan">{baseline.bpm_low:.0f}–{baseline.bpm_high:.0f}</div>
+                </div>
+                <div style="text-align:center">
+                    <div class="sx-metric-note">сейчас</div>
+                    <div style="font-size:1.7rem; font-weight:800; color:{color}">
+                        {arrow} {abs(deviation.bpm_delta):.0f}
+                    </div>
+                </div>
+            </div>
+            <div style="font-size:0.87rem; line-height:1.5; margin-top:0.7rem;
+                        color:{config.COLOR_TEXT_DIM}">
+                {deviation.message}<br>
+                Посчитано по {baseline.samples} замерам за {baseline.days} дней.
+            </div>
+            {notify}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def history_chart(labels: list[str], values: list[float]) -> None:
+    """График пульса за последние дни."""
+    if len(values) < 2:
+        return
+    st.caption("Пульс за последние дни")
+    st.line_chart(
+        pd.DataFrame({"уд/мин": values}, index=labels),
+        height=150,
+        color=config.COLOR_CYAN,
+    )
 
 
 def disclaimer() -> None:

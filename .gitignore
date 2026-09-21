@@ -29,3 +29,4 @@ demo/*.png
 .wheels/
 scripts_pull.sh
 models/
+data/

@@ -17,6 +17,7 @@ import streamlit as st
 import config
 from ai import council, ollama_client, prompts, specialties
 from core import scan as scan_mod
+from core import history as history_mod
 from core import triage_engine
 from core import video_io
 from ui import components as ui
@@ -84,6 +85,17 @@ def _process_video(path: Path) -> None:
     progress_bar.empty()
     st.session_state.scan_result = result
 
+    # Замер идёт в историю — из неё строится личная норма.
+    # Плохое качество внутри отсеивается: норма на шуме тихо врёт.
+    try:
+        history_mod.add(
+            bpm=result.heart_rate.bpm,
+            fatigue=result.fatigue.index,
+            quality=result.quality.level.value,
+        )
+    except Exception:  # noqa: BLE001 — история не критична для скана
+        log.exception("Не удалось сохранить замер в историю")
+
     # Первый удачный замер становится точкой отсчёта для пробы с нагрузкой.
     if (
         st.session_state.baseline_scan is None
@@ -103,6 +115,13 @@ def _render_scan_result() -> None:
     ui.heart_rate_card(result.heart_rate, result.quality)
     ui.fatigue_card(result.fatigue)
     ui.quality_card(result.quality)
+
+    # Сравнение с личной нормой — то, ради чего скан делают каждый день.
+    if result.quality.level.is_trustworthy:
+        baseline = history_mod.compute_baseline()
+        deviation = history_mod.check_deviation(result.heart_rate.bpm, baseline)
+        ui.baseline_card(deviation, baseline)
+        ui.history_chart(*history_mod.recent_series())
 
     # Проба с нагрузкой: показываем сравнение, только если есть два разных
     # замера и обоим можно доверять.
