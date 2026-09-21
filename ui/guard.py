@@ -17,7 +17,7 @@ import logging
 import streamlit as st
 
 import config
-from core import alerts, audio_io
+from core import alerts, audio_io, registry
 from core.scam_engine import RiskLevel, ScamDecision, evaluate, warning_text
 from ui import alarm
 from ui import components as ui
@@ -127,6 +127,44 @@ def _notify_block(alert: alerts.Alert) -> None:
     )
 
 
+def _report_block(decision: ScamDecision) -> None:
+    """Отправка номера в реестр — то, чем Android защищает iPhone.
+
+    Разобрать разговор на iOS невозможно: Apple не даёт микрофон во время
+    звонка. Но предупредить ДО ответа можно — через Call Directory, тем же
+    механизмом, что у определителей номера. Номера для этого списка
+    поставляют те, у кого приложение разговор слышит.
+    """
+    with st.expander("📇 Добавить номер в реестр"):
+        st.caption(
+            "Номер попадёт в общий список. Владельцы iPhone увидят "
+            "предупреждение ещё до того, как снимут трубку — там разобрать "
+            "разговор нельзя, но предупредить о номере можно."
+        )
+        number = st.text_input(
+            "Номер звонившего",
+            key="scam_number",
+            placeholder="+7 700 000 00 00",
+            label_visibility="collapsed",
+        )
+        if st.button("Добавить в реестр", key="registry_add"):
+            record = registry.report(number, [p.code for p in decision.matched])
+            if record is None:
+                st.warning("Не разобрал номер.")
+            elif record.is_confirmed:
+                st.success(
+                    f"Номер подтверждён ({record.reports} сообщения). "
+                    "Владельцы iPhone будут предупреждены."
+                )
+            else:
+                left = config.REGISTRY_MIN_REPORTS - record.reports
+                st.info(
+                    f"Записано. Нужно ещё {left} подтверждение от других "
+                    "пользователей — один сигнал номер не осуждает: "
+                    "мошенники подменяют чужие номера."
+                )
+
+
 def _level_bar(levels: list[float]) -> None:
     """Индикатор громкости — по нему видно, что микрофон живой."""
     if not levels:
@@ -178,6 +216,7 @@ def _live_panel() -> None:
 
     if alerts.should_send(decision=decision):
         _notify_block(alerts.scam_alert(decision, st.session_state.get("parent_name", "")))
+        _report_block(decision)
 
     _level_bar(state.levels)
 
