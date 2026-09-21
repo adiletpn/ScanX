@@ -28,3 +28,4 @@ demo/*.png
 .DS_Store
 .wheels/
 scripts_pull.sh
+models/
