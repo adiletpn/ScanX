@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Временные файлы обработки видео
+*.tmp
+tmp_*/
+.cache/
+
+# Демо-материалы: большие файлы не коммитим, кладём локально
+demo/*.mp4
+demo/*.mov
+demo/*.MOV
+demo/*.webm
+demo/*.3gp
+demo/*.jpg
+demo/*.jpeg
+demo/*.png
+!demo/.gitkeep
+
+# OS
+.DS_Store
