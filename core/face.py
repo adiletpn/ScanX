@@ -222,6 +222,7 @@ def extract_features(
     frames_total = 0
     last_points: FloatArray | None = None
     last_mask: npt.NDArray[np.uint8] | None = None
+    last_image: BGRFrame | None = None
 
     roi_indices = (
         config.ROI_FOREHEAD + config.ROI_LEFT_CHEEK + config.ROI_RIGHT_CHEEK
@@ -231,6 +232,7 @@ def extract_features(
         for frame in frames:
             frames_total += 1
             image = frame.image
+            last_image = image
             height, width = image.shape[:2]
 
             # Прореживание детектора: на пропущенных кадрах берём маску
@@ -283,7 +285,10 @@ def extract_features(
             if preview is None and frames_total > 30:
                 preview = _draw_preview(image, last_points, last_mask)
 
-            if progress_callback is not None:
+            # Прогресс обновляем редко: на 60 fps видео это больше тысячи
+            # кадров, и перерисовка Streamlit на каждом стоит дороже,
+            # чем сам анализ.
+            if progress_callback is not None and frames_total % 15 == 0:
                 progress_callback(frames_total, None)
 
     if not rgb_means:
@@ -292,8 +297,13 @@ def extract_features(
             "и хорошо освещено спереди."
         )
 
-    if preview is None and last_points is not None and last_mask is not None:
-        preview = _draw_preview(image, last_points, last_mask)
+    if (
+        preview is None
+        and last_image is not None
+        and last_points is not None
+        and last_mask is not None
+    ):
+        preview = _draw_preview(last_image, last_points, last_mask)
 
     log.info(
         "Признаки собраны: %d кадров с лицом из %d (%.0f%%)",
