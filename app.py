@@ -15,7 +15,7 @@ from pathlib import Path
 import streamlit as st
 
 import config
-from ai import ollama_client, prompts, specialties
+from ai import council, ollama_client, prompts, specialties
 from core import scan as scan_mod
 from core import video_io
 from ui import components as ui
@@ -39,6 +39,8 @@ def init_session_state() -> None:
         "baseline_scan": None,     # замер в покое — для пробы с нагрузкой
         "chat_messages": [],       # история диалога с ассистентом
         "triage_result": None,     # карточка маршрутизации
+        "council_opinions": [],    # мнения специалистов консилиума
+        "council_summary": None,   # сводное заключение консилиума
         "jump_to_chat": False,     # переход из скана в чат с контекстом
         "specialty": specialties.DEFAULT_KEY,  # у какого врача идёт приём
     }
@@ -289,6 +291,54 @@ def _parse_triage(raw: str) -> dict[str, str]:
     return fields
 
 
+def _run_council(complaint: str, scan_context: str) -> None:
+    """Собирает консилиум: выбор врачей, мнения, общее заключение.
+
+    Мнения стримятся по мере генерации — на локальной модели весь разбор
+    занимает около минуты, и без потокового вывода экран выглядел бы
+    зависшим всё это время.
+    """
+    st.session_state.council_opinions = []
+    st.session_state.council_summary = None
+
+    try:
+        with st.spinner("Собираю консилиум…"):
+            chosen = council.choose_specialists(complaint, scan_context)
+    except ollama_client.OllamaError as exc:
+        ui.note(str(exc), kind="warn")
+        return
+
+    opinions: list[council.Opinion] = []
+    for specialty in chosen:
+        st.markdown(
+            f'<div class="sx-metric-label">{specialty.icon} {specialty.name}</div>',
+            unsafe_allow_html=True,
+        )
+        placeholder = st.empty()
+        collected = ""
+        try:
+            for piece in council.opinion_stream(specialty, complaint, scan_context):
+                collected += piece
+                placeholder.markdown(collected + "▌")
+            placeholder.markdown(collected)
+        except ollama_client.OllamaError as exc:
+            placeholder.empty()
+            ui.note(str(exc), kind="warn")
+            return
+        opinions.append(council.Opinion(specialty=specialty, text=collected))
+
+    st.session_state.council_opinions = opinions
+
+    try:
+        with st.spinner("Свожу заключение…"):
+            raw = council.summarize(complaint, opinions)
+    except ollama_client.OllamaError as exc:
+        ui.note(str(exc), kind="warn")
+        return
+
+    st.session_state.council_summary = council.parse_summary(raw)
+
+
 def render_triage_tab() -> None:
     """Вкладка «Куда идти» — маршрутизация к специалисту."""
     status = ollama_client.check_status()
@@ -309,7 +359,30 @@ def render_triage_tab() -> None:
         label_visibility="collapsed",
     )
 
-    if st.button("Получить заключение", type="primary", key="triage_run"):
+    scan_context = ""
+    if st.session_state.scan_result is not None:
+        result = st.session_state.scan_result
+        scan_context = prompts.format_scan_context(
+            result.heart_rate, result.fatigue, result.quality
+        )
+
+    if st.button("Созвать консилиум", type="primary", key="council_run"):
+        if not complaint.strip():
+            ui.note("Опишите жалобы хотя бы в двух словах.", kind="warn")
+        else:
+            _run_council(complaint, scan_context)
+
+    if st.session_state.council_summary:
+        summary = st.session_state.council_summary
+        ui.council_card(
+            agreement=summary["СОГЛАСИЕ"],
+            disagreement=summary["РАЗНОГЛАСИЯ"],
+            urgency=summary["СРОЧНОСТЬ"] or "ПЛАНОВО",
+            doctor=summary["ГЛАВНЫЙ ВРАЧ"],
+            plan=summary["ПЛАН"],
+        )
+
+    if st.button("Быстрое заключение (один врач)", key="triage_run"):
         if not complaint.strip():
             ui.note("Опишите жалобы хотя бы в двух словах.", kind="warn")
         else:

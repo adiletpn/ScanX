@@ -275,6 +275,55 @@ def triage_card(
     )
 
 
+def council_card(
+    agreement: str,
+    disagreement: str,
+    urgency: str,
+    doctor: str,
+    plan: str,
+) -> None:
+    """Сводное заключение консилиума.
+
+    Разногласия показываем отдельной строкой и не прячем: если специалисты
+    разошлись во мнениях, человек должен об этом знать — это сигнал, что
+    случай неоднозначный и очный приём нужен сильнее.
+    """
+    palette = {
+        "СРОЧНО": ("🔴", "red", "Нужна помощь сегодня"),
+        "ПЛАНОВО": ("🟡", "amber", "К врачу в ближайшие дни"),
+        "САМОСТОЯТЕЛЬНО": ("🟢", "green", "Врач не нужен — справитесь сами"),
+    }
+    emoji, glow, headline = palette.get(urgency.upper(), ("🟡", "amber", urgency))
+
+    rows = [f"<div style='margin-top:0.5rem'><b>Согласие:</b> {agreement}</div>"]
+    if disagreement and disagreement.lower() not in ("нет", "—", ""):
+        rows.append(
+            f"<div style='margin-top:0.5rem; color:{config.COLOR_MAGENTA}'>"
+            f"<b>Разногласия:</b> {disagreement}</div>"
+        )
+    if doctor:
+        rows.append(f"<div style='margin-top:0.5rem'><b>К кому в первую очередь:</b> {doctor}</div>")
+    if plan:
+        rows.append(f"<div style='margin-top:0.5rem'><b>План:</b> {plan}</div>")
+
+    st.markdown(
+        f"""
+        <div class="sx-card">
+            <div class="sx-metric-label" style="text-align:center">
+                Заключение консилиума
+            </div>
+            <div style="text-align:center; font-size:2.2rem; margin-top:0.4rem">{emoji}</div>
+            <div style="text-align:center; font-size:1.2rem; font-weight:800;
+                        margin-bottom:0.4rem" class="sx-glow-{glow}">{headline}</div>
+            <div style="font-size:0.9rem; line-height:1.55">
+                {"".join(rows)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def disclaimer() -> None:
     """Обязательный дисклеймер под результатами."""
     st.caption(f"⚠️ {config.DISCLAIMER_FULL}")
