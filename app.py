@@ -43,6 +43,8 @@ def init_session_state() -> None:
         "council_opinions": [],    # мнения специалистов консилиума
         "council_summary": None,   # сводное заключение консилиума
         "triage_decision": None,   # решение собственного движка
+        "doctor_sheet": None,      # лист для приёма у врача
+        "last_complaint": "",      # последняя жалоба — нужна для листа
         "jump_to_chat": False,     # переход из скана в чат с контекстом
         "specialty": specialties.DEFAULT_KEY,  # у какого врача идёт приём
     }
@@ -362,6 +364,46 @@ def _run_council(complaint: str, scan_context: str) -> None:
     st.session_state.council_summary = council.parse_summary(raw)
 
 
+def _build_doctor_sheet(complaint: str, scan_context: str) -> None:
+    """Собирает лист для очного приёма.
+
+    В контекст уходит всё, что у нас есть: жалоба, замеры скана и решение
+    движка. Смысл функции в том, чтобы человек не вспоминал на приёме
+    «вроде недели две» — а показал врачу конкретные цифры и даты.
+    """
+    decision = st.session_state.triage_decision
+    engine_note = ""
+    if decision is not None:
+        engine_note = (
+            "\n\nПредварительная оценка системы: "
+            f"{decision.urgency.label.lower()}. "
+            + ("; ".join(decision.reasons) if decision.reasons else "")
+        )
+
+    council_note = ""
+    if st.session_state.council_opinions:
+        council_note = "\n\nМнения специалистов:\n" + "\n".join(
+            f"{o.specialty.name}: {o.text}"
+            for o in st.session_state.council_opinions
+        )
+
+    user = f"{complaint}\n\n{scan_context}{engine_note}{council_note}".strip()
+
+    with st.spinner("Готовлю лист для приёма…"):
+        try:
+            sheet = ollama_client.chat_once(
+                [
+                    {"role": "system", "content": prompts.SYSTEM_DOCTOR_SHEET},
+                    {"role": "user", "content": user},
+                ]
+            )
+        except ollama_client.OllamaError as exc:
+            ui.note(str(exc), kind="warn")
+            return
+
+    st.session_state.doctor_sheet = sheet
+
+
 def render_triage_tab() -> None:
     """Вкладка «Куда идти» — маршрутизация к специалисту."""
     status = ollama_client.check_status()
@@ -393,6 +435,7 @@ def render_triage_tab() -> None:
         if not complaint.strip():
             ui.note("Опишите жалобы хотя бы в двух словах.", kind="warn")
         else:
+            st.session_state.last_complaint = complaint
             _run_council(complaint, scan_context)
 
     if st.session_state.council_summary:
@@ -403,6 +446,23 @@ def render_triage_tab() -> None:
             urgency=summary["СРОЧНОСТЬ"] or "ПЛАНОВО",
             doctor=summary["ГЛАВНЫЙ ВРАЧ"],
             plan=summary["ПЛАН"],
+        )
+
+    # Лист для приёма — то, с чем человек придёт к живому врачу.
+    if st.session_state.council_summary or st.session_state.triage_result:
+        if st.button("📋 Лист для приёма у врача", key="sheet_run"):
+            _build_doctor_sheet(
+                complaint or st.session_state.last_complaint, scan_context
+            )
+
+    if st.session_state.doctor_sheet:
+        ui.doctor_sheet_card(st.session_state.doctor_sheet)
+        st.download_button(
+            "Сохранить лист",
+            data=st.session_state.doctor_sheet,
+            file_name="scanx-list-dlya-vracha.txt",
+            mime="text/plain",
+            key="sheet_download",
         )
 
     if st.button("Быстрое заключение (один врач)", key="triage_run"):

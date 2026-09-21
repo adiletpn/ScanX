@@ -375,6 +375,30 @@ def decision_trace(decision: TriageDecision) -> None:
         st.caption(f"Балл срочности: {decision.score:.1f}")
 
 
+def doctor_sheet_card(text: str) -> None:
+    """Лист для очного приёма.
+
+    Оформлен как документ, а не как чат: человек показывает его врачу
+    прямо с экрана телефона, и тот должен прочитать всё с одного взгляда.
+    """
+    st.markdown(
+        f"""
+        <div class="sx-card" style="border-color:{config.COLOR_GREEN};
+                    background:rgba(57,255,20,0.05)">
+            <div class="sx-metric-label" style="text-align:center">
+                📋 Лист для приёма
+            </div>
+            <div style="text-align:center; font-size:0.75rem;
+                        color:{config.COLOR_TEXT_DIM}; margin-bottom:0.7rem">
+                Покажите это врачу
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(text)
+
+
 def disclaimer() -> None:
     """Обязательный дисклеймер под результатами."""
     st.caption(f"⚠️ {config.DISCLAIMER_FULL}")
