@@ -124,8 +124,6 @@ def _render_scan_result() -> None:
         )
         st.rerun()
 
-    ui.disclaimer()
-
 
 def render_scan_tab() -> None:
     """Вкладка «Скан» — загрузка видео и результаты замера."""
