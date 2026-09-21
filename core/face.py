@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from dataclasses import dataclass, field
 
@@ -74,13 +75,13 @@ def _landmarks_to_pixels(landmarks, width: int, height: int) -> FloatArray:
     )
 
 
-def _roi_mask(
+def _region_mask(
     points: FloatArray,
     indices: list[int],
     shape: tuple[int, int],
     shrink_px: int,
 ) -> npt.NDArray[np.uint8]:
-    """Строит бинарную маску области по списку индексов ландмарок.
+    """Маска ОДНОЙ области по её списку индексов.
 
     Берём выпуклую оболочку точек, а не полигон в порядке перечисления:
     так область не выворачивается наизнанку, если индексы заданы не по
@@ -105,6 +106,79 @@ def _roi_mask(
         mask = cv2.erode(mask, kernel, iterations=1)
 
     return mask
+
+
+def _roi_mask(
+    points: FloatArray,
+    regions: list[list[int]],
+    shape: tuple[int, int],
+    shrink_px: int,
+) -> npt.NDArray[np.uint8]:
+    """Объединяет маски отдельных областей.
+
+    Каждая область обводится СВОЕЙ выпуклой оболочкой, и только потом они
+    складываются. Если построить одну оболочку по объединённому списку точек
+    лба и обеих щёк, получится сплошной блок через середину лица — вместе
+    с глазами и носом. Глаза моргают, нос отбрасывает тень; и то и другое
+    загрязняет пульсовой сигнал.
+    """
+    height, width = shape
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for indices in regions:
+        mask = cv2.bitwise_or(mask, _region_mask(points, indices, shape, shrink_px))
+    return mask
+
+
+def probe_orientation(samples: list[BGRFrame]) -> int:
+    """Определяет, нужно ли доворачивать кадр на 180°.
+
+    Метаданные поворота у видео с телефона противоречивы: OpenCV иногда
+    разворачивает кадр сам, иногда нет, и направление по ним не угадать.
+
+    По геометрии ландмарок ориентацию тоже не определить. Face Mesh
+    в режиме трекинга цепляется за перевёрнутое лицо и назначает разметку
+    зеркально — «лоб» оказывается там, где на самом деле подбородок.
+    Проверка «лоб выше подбородка» при этом успешно проходит, а ROI
+    попадает на рот и глаза.
+
+    Зато в СТРОГОМ режиме (``static_image_mode=True``) детектор гораздо
+    придирчивее и перевёрнутое лицо чаще всего просто не находит. На этом
+    и строим проверку: пробуем обе ориентации на нескольких кадрах
+    и берём ту, где лицо находится чаще.
+
+    Args:
+        samples: несколько кадров из начала записи.
+
+    Returns:
+        0 или 180 — угол, на который нужно довернуть кадры.
+    """
+    if not samples:
+        return 0
+
+    import mediapipe as mp
+
+    mesh = mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=False,  # контуры глаз здесь не нужны, так быстрее
+        min_detection_confidence=config.ORIENTATION_PROBE_CONFIDENCE,
+    )
+    try:
+        hits = {0: 0, 180: 0}
+        for image in samples:
+            for angle, candidate in (
+                (0, image),
+                (180, cv2.rotate(image, cv2.ROTATE_180)),
+            ):
+                rgb = cv2.cvtColor(candidate, cv2.COLOR_BGR2RGB)
+                rgb.flags.writeable = False
+                if mesh.process(rgb).multi_face_landmarks:
+                    hits[angle] += 1
+    finally:
+        mesh.close()
+
+    log.info("Проба ориентации: 0° — %d, 180° — %d", hits[0], hits[180])
+    return 180 if hits[180] > hits[0] else 0
 
 
 def _draw_preview(frame: BGRFrame, points: FloatArray, mask: npt.NDArray[np.uint8]) -> BGRFrame:
@@ -160,6 +234,14 @@ class FaceTracker:
 
     def close(self) -> None:
         self._mesh.close()
+
+    def reset(self) -> None:
+        """Сбрасывает сглаживание.
+
+        Нужен после разворота кадра: накопленные ландмарки относятся
+        к прежней ориентации, и смешивать их с новыми нельзя.
+        """
+        self._smoothed = None
 
     def process(self, frame_bgr: BGRFrame) -> FloatArray | None:
         """Находит лицо и возвращает сглаженные ландмарки в пикселях.
@@ -224,14 +306,31 @@ def extract_features(
     last_mask: npt.NDArray[np.uint8] | None = None
     last_image: BGRFrame | None = None
 
-    roi_indices = (
-        config.ROI_FOREHEAD + config.ROI_LEFT_CHEEK + config.ROI_RIGHT_CHEEK
-    )
+    roi_regions = [
+        config.ROI_FOREHEAD,
+        config.ROI_LEFT_CHEEK,
+        config.ROI_RIGHT_CHEEK,
+    ]
+
+    # Ориентацию определяем ДО основного прохода: буферизуем первые кадры,
+    # пробуем на них обе ориентации и дальше идём с уже известным поворотом.
+    # Иначе Face Mesh залипнет на перевёрнутом лице и разметит его зеркально.
+    frames_iter = iter(frames)
+    warmup: list[Frame] = []
+    for _ in range(config.ORIENTATION_PROBE_FRAMES):
+        try:
+            warmup.append(next(frames_iter))
+        except StopIteration:
+            break
+
+    flip_180 = probe_orientation([f.image for f in warmup]) == 180
+    if flip_180:
+        log.info("Видео перевёрнуто — доворачиваю кадры на 180°")
 
     with FaceTracker() as tracker:
-        for frame in frames:
+        for frame in itertools.chain(warmup, frames_iter):
             frames_total += 1
-            image = frame.image
+            image = cv2.rotate(frame.image, cv2.ROTATE_180) if flip_180 else frame.image
             last_image = image
             height, width = image.shape[:2]
 
@@ -256,7 +355,7 @@ def extract_features(
                     )
                     shrink = max(int(face_diag * config.ROI_SHRINK_RATIO), 1)
                     last_mask = _roi_mask(
-                        points, roi_indices, (height, width), shrink
+                        points, roi_regions, (height, width), shrink
                     )
 
             if last_points is None or last_mask is None or not last_mask.any():
