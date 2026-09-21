@@ -82,7 +82,16 @@ def _motion_score(features: ScanFeatures) -> float:
 
     steps = np.linalg.norm(np.diff(centers, axis=0), axis=1)
     scale = np.maximum(sizes[1:], 1e-6)
-    return float(np.median(steps / scale))
+    normalized = steps / scale
+
+    # Face Mesh запускается не на каждом кадре, поэтому часть соседних пар
+    # содержит одни и те же ландмарки и даёт смещение ровно 0. Если их учесть,
+    # медиана схлопнется в ноль и любая тряска будет выглядеть как штатив.
+    moved = normalized[normalized > 0.0]
+    if moved.size == 0:
+        return 0.0
+
+    return float(np.median(moved))
 
 
 def _brightness(features: ScanFeatures) -> float:
