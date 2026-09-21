@@ -15,7 +15,7 @@ from pathlib import Path
 import streamlit as st
 
 import config
-from ai import ollama_client, prompts
+from ai import ollama_client, prompts, specialties
 from core import scan as scan_mod
 from core import video_io
 from ui import components as ui
@@ -40,6 +40,7 @@ def init_session_state() -> None:
         "chat_messages": [],       # история диалога с ассистентом
         "triage_result": None,     # карточка маршрутизации
         "jump_to_chat": False,     # переход из скана в чат с контекстом
+        "specialty": specialties.DEFAULT_KEY,  # у какого врача идёт приём
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -170,7 +171,7 @@ def render_scan_tab() -> None:
 
 def _build_chat_messages() -> list[dict[str, object]]:
     """Собирает историю с системным промптом и контекстом скана."""
-    system = prompts.SYSTEM_ASSISTANT
+    system = prompts.build_specialist_prompt(st.session_state.specialty)
 
     result = st.session_state.scan_result
     if result is not None:
@@ -211,10 +212,26 @@ def render_chat_tab() -> None:
         ui.note(status.message.replace("\n", "<br>"), kind="warn")
         return
 
+    current = specialties.get(st.session_state.specialty)
+
+    chosen = st.selectbox(
+        "Врач",
+        options=[s.key for s in specialties.SPECIALTIES],
+        index=[s.key for s in specialties.SPECIALTIES].index(current.key),
+        format_func=lambda k: f"{specialties.BY_KEY[k].icon}  {specialties.BY_KEY[k].name}",
+        label_visibility="collapsed",
+    )
+    if chosen != st.session_state.specialty:
+        # Смена врача обнуляет диалог: прошлые ответы давал другой специалист,
+        # и подмешивать их в новый приём некорректно.
+        st.session_state.specialty = chosen
+        st.session_state.chat_messages = []
+        st.rerun()
+
+    ui.note(f"<b>{current.icon} {current.name}</b><br>{current.complaints.capitalize()}.")
+
     if st.session_state.scan_result is not None:
         ui.note("Данные скана переданы врачу — он их учтёт.")
-    else:
-        ui.note("Расскажите, что беспокоит. Скан можно сделать позже.")
 
     # Быстрые вопросы — экономят набор текста на телефоне.
     if not st.session_state.chat_messages:
@@ -323,6 +340,14 @@ def render_triage_tab() -> None:
 
     triage = st.session_state.triage_result
     if triage:
+        matched = specialties.match_by_name(triage["ВРАЧ"])
+        if matched is not None and st.button(
+            f"Записаться к специалисту: {matched.icon} {matched.name}", key="goto_spec"
+        ):
+            st.session_state.specialty = matched.key
+            st.session_state.chat_messages = []
+            st.rerun()
+
         ui.triage_card(
             urgency=triage["СРОЧНОСТЬ"] or "ПЛАНОВО",
             doctor=triage["ВРАЧ"] or "—",
