@@ -6,10 +6,24 @@ streamlit==1.40.2
 # Компьютерное зрение.
 # mediapipe 0.10.21 — последняя версия с legacy-API mp.solutions.face_mesh.
 # Начиная с 0.10.30 остался только Tasks API, наш код там не заработает.
-# cv2 приходит вместе с mediapipe: та зависит от opencv-contrib-python.
-# Ставить рядом ещё и opencv-python(-headless) нельзя — оба пакета
-# распаковываются в один каталог cv2/ и затирают друг друга.
+# mediapipe ставится БЕЗ автоматических зависимостей (см. README):
+#   pip install --no-deps mediapipe==0.10.21
+# Причина: она тянет jax и jaxlib (~90 МБ), которые нужны только
+# конвертеру весов LLM в mediapipe/tasks/python/genai/converter —
+# к Face Mesh они отношения не имеют. Ни один файл в цепочке импорта
+# face_mesh их не трогает, проверено.
 mediapipe==0.10.21
+
+# Реальные зависимости mediapipe, нужные Face Mesh.
+# cv2 приходит именно отсюда: ставить рядом ещё и opencv-python(-headless)
+# нельзя — оба пакета распаковываются в один каталог cv2/ и затирают друг друга.
+opencv-contrib-python==4.11.0.86
+absl-py==2.5.0
+attrs==26.1.0
+flatbuffers==25.12.19
+protobuf==4.25.9
+sentencepiece==0.2.2
+sounddevice==0.5.6
 
 # Численные методы. numpy<2 — требование mediapipe 0.10.x.
 numpy==1.26.4

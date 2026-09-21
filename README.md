@@ -54,6 +54,12 @@ cd ScanX
 
 python3.12 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# mediapipe ставится без автоматических зависимостей — иначе она притащит
+# jax и jaxlib (~90 МБ), нужные только её конвертеру весов LLM.
+# К Face Mesh они отношения не имеют. Всё, что ей действительно нужно,
+# перечислено в requirements.txt явно.
+pip install --no-deps mediapipe==0.10.21
 pip install -r requirements.txt
 ```
 
