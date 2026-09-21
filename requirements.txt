@@ -6,8 +6,10 @@ streamlit==1.40.2
 # Компьютерное зрение.
 # mediapipe 0.10.21 — последняя версия с legacy-API mp.solutions.face_mesh.
 # Начиная с 0.10.30 остался только Tasks API, наш код там не заработает.
+# cv2 приходит вместе с mediapipe: та зависит от opencv-contrib-python.
+# Ставить рядом ещё и opencv-python(-headless) нельзя — оба пакета
+# распаковываются в один каталог cv2/ и затирают друг друга.
 mediapipe==0.10.21
-opencv-python-headless==4.10.0.84
 
 # Численные методы. numpy<2 — требование mediapipe 0.10.x.
 numpy==1.26.4
