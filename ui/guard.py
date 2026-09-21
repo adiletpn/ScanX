@@ -17,7 +17,7 @@ import logging
 import streamlit as st
 
 import config
-from core import audio_io
+from core import alerts, audio_io
 from core.scam_engine import RiskLevel, ScamDecision, evaluate, warning_text
 from ui import alarm
 from ui import components as ui
@@ -101,6 +101,32 @@ def _risk_meter(decision: ScamDecision) -> None:
                 st.markdown(f"✓ _{signal}_")
 
 
+def _notify_block(alert: alerts.Alert) -> None:
+    """Готовое сообщение близким — одним касанием.
+
+    Отправку делает штатное приложение сообщений по ссылке ``sms:``.
+    Платный шлюз здесь был бы неуместен: он требует интернета и увёл бы
+    данные на чужой сервер, а мы работаем офлайн принципиально.
+    """
+    phone = st.session_state.get("child_phone", "")
+    st.markdown(
+        f"""
+        <div class="sx-card" style="border-color:{config.COLOR_MAGENTA}">
+            <div class="sx-metric-label">📩 Сообщить близким</div>
+            <div style="font-size:0.85rem; line-height:1.55; margin-top:0.5rem;
+                        white-space:pre-line">{alert.body}</div>
+            <a href="{alert.sms_link(phone)}"
+               style="display:block; text-align:center; margin-top:0.8rem;
+                      padding:0.7rem; border-radius:12px; text-decoration:none;
+                      font-weight:700; color:#02131a; background:{config.COLOR_MAGENTA}">
+                Отправить SMS
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _level_bar(levels: list[float]) -> None:
     """Индикатор громкости — по нему видно, что микрофон живой."""
     if not levels:
@@ -149,6 +175,10 @@ def _live_panel() -> None:
         )
 
     _risk_meter(decision)
+
+    if alerts.should_send(decision=decision):
+        _notify_block(alerts.scam_alert(decision, st.session_state.get("parent_name", "")))
+
     _level_bar(state.levels)
 
     st.caption(f"Слушаю {state.seconds:.0f} с · обработано {state.chunks} фрагментов")
@@ -198,6 +228,20 @@ def render() -> None:
             st.rerun()
 
     alarm.test_button()
+
+    with st.expander("Кому сообщать"):
+        st.text_input(
+            "Имя родителя",
+            key="parent_name",
+            placeholder="Маме",
+            help="Подставится в сообщение, чтобы ребёнок сразу понял, о ком речь",
+        )
+        st.text_input(
+            "Телефон близкого",
+            key="child_phone",
+            placeholder="+7 700 000 00 00",
+            help="Сообщение уйдёт обычной SMS — она работает и без интернета",
+        )
 
     _live_panel()
 
