@@ -30,3 +30,4 @@ demo/*.png
 scripts_pull.sh
 models/
 data/
+demo/calls/
