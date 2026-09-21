@@ -20,6 +20,7 @@ from core import scan as scan_mod
 from core import triage_engine
 from core import video_io
 from ui import components as ui
+from ui import guard
 from ui.styles import inject_styles, render_header
 
 logging.basicConfig(
@@ -529,7 +530,12 @@ def main() -> None:
     init_session_state()
     render_header()
 
-    tab_scan, tab_chat, tab_triage = st.tabs(["Скан", "Приём", "Заключение"])
+    tab_guard, tab_scan, tab_chat, tab_triage = st.tabs(
+        ["🛡 Защитник", "Скан", "Приём", "Заключение"]
+    )
+
+    with tab_guard:
+        guard.render()
 
     with tab_scan:
         render_scan_tab()
