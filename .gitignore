@@ -31,3 +31,10 @@ scripts_pull.sh
 models/
 data/
 demo/calls/
+
+# Веб-версия: модели и сертификаты не в репозитории
+web/*.tar.gz
+web/vosk.js
+web/cert.pem
+web/key.pem
+webtest/
