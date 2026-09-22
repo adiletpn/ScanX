@@ -233,6 +233,108 @@ def _live_panel() -> None:
         st.caption("Пока тихо…")
 
 
+#: Сценарии для показа на сцене. Ключ — файл в demo/calls, значение —
+#: подпись на кнопке и ожидаемый исход. Два последних нужны не меньше
+#: первых: показать, что система МОЛЧИТ на обычном разговоре,
+#: убеждает сильнее, чем показать срабатывание.
+DEMO_CALLS: tuple[tuple[str, str, bool], ...] = (
+    ("New Recording.m4a", "🏦 «Служба безопасности банка»", True),
+    ("New Recording 2.m4a", "👨‍👩‍👦 «Ваш сын попал в аварию»", True),
+    ("New Recording 4.m4a", "🇰🇿 Казахский: «Кодты айтыңыз»", True),
+    ("New Recording 5.m4a", "💻 «Установите AnyDesk»", True),
+    ("New Recording 6.m4a", "✅ Настоящий банк", False),
+    ("New Recording 7.m4a", "✅ Сын звонит маме", False),
+)
+
+
+@st.cache_data(show_spinner=False)
+def _demo_transcript(filename: str) -> str:
+    """Расшифровка демо-записи.
+
+    Кэшируется намеренно: распознавание занимает пару секунд, а на сцене
+    любая пауза читается как «у них не работает». После первого прогона
+    ответ мгновенный.
+    """
+    from core.asr import transcribe_file
+
+    return transcribe_file(config.DEMO_CALLS_DIR / filename, dual=True)
+
+
+def _render_demo_result(filename: str, label: str) -> None:
+    """Показывает разбор одной записи так, как это увидит зал."""
+    try:
+        transcript = _demo_transcript(filename)
+    except Exception as exc:  # noqa: BLE001 — на сцене падать нельзя
+        log.exception("Сбой демо-записи %s", filename)
+        ui.note(f"Не удалось разобрать запись: {exc}", kind="warn")
+        return
+
+    decision = evaluate(transcript)
+
+    st.markdown(f"**{label}**")
+
+    if decision.level.should_warn:
+        alarm.danger_banner(decision, warning_text(decision))
+    else:
+        st.markdown(
+            f'<div class="sx-card" style="border-color:{config.COLOR_GREEN}; '
+            f'background:rgba(57,255,20,0.06)">'
+            f'<div style="text-align:center; font-size:2.2rem">🤫</div>'
+            f'<div style="text-align:center; font-size:1.15rem; font-weight:800; '
+            f'color:{config.COLOR_GREEN}">Система молчит</div>'
+            f'<div style="text-align:center; font-size:0.87rem; margin-top:0.4rem; '
+            f'color:{config.COLOR_TEXT_DIM}">Обычный разговор — тревоги нет</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    _risk_meter(decision)
+
+    if alerts.should_send(decision=decision):
+        _notify_block(alerts.scam_alert(decision, st.session_state.get("parent_name", "")))
+
+    with st.expander("Что услышала система"):
+        st.markdown(
+            f'<div style="font-size:0.85rem; line-height:1.6; '
+            f'color:{config.COLOR_TEXT_DIM}">{transcript}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_demo() -> None:
+    """Демонстрационный блок для сцены.
+
+    Записи прогоняются через тот же путь, что и живой звук: распознавание,
+    движок, предупреждение. Это не постановка — просто звук приходит
+    из файла, а не с микрофона.
+    """
+    if not config.DEMO_CALLS_DIR.exists():
+        return
+
+    available = [
+        (name, label, is_scam)
+        for name, label, is_scam in DEMO_CALLS
+        if (config.DEMO_CALLS_DIR / name).exists()
+    ]
+    if not available:
+        return
+
+    ui.note(
+        "Записи настоящих сценариев. Проходят тот же путь, что живой звук: "
+        "распознавание → движок → предупреждение."
+    )
+
+    for name, label, _is_scam in available:
+        if st.button(label, key=f"demo_{name}", use_container_width=True):
+            st.session_state.demo_selected = name
+
+    selected = st.session_state.get("demo_selected")
+    if selected:
+        label = next((l for n, l, _ in available if n == selected), selected)
+        st.divider()
+        _render_demo_result(selected, label)
+
+
 def render() -> None:
     """Рисует вкладку «Защитник»."""
     listener = _listener()
@@ -283,6 +385,9 @@ def render() -> None:
         )
 
     _live_panel()
+
+    with st.expander("🎬 Демонстрация на записях", expanded=False):
+        render_demo()
 
     with st.expander("Проверить на записи разговора"):
         st.caption(

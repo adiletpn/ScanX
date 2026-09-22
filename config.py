@@ -16,6 +16,9 @@ from typing import Final
 BASE_DIR: Final[Path] = Path(__file__).parent
 DEMO_DIR: Final[Path] = BASE_DIR / "demo"
 
+#: Записи звонков для демонстрации на сцене.
+DEMO_CALLS_DIR: Final[Path] = DEMO_DIR / "calls"
+
 # ─────────────────────────────────────────────────────────────
 # Видео
 # ─────────────────────────────────────────────────────────────
